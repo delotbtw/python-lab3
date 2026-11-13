@@ -1,0 +1,30 @@
+[project]
+name = "libcatalog"
+version = "0.1.0"
+description = "Catalog of library books with JSON storage"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.mypy]
+strict = true
+mypy_path = "src"
+
+[tool.coverage.run]
+omit = ["*/__init__.py"]
+
+[dependency-groups]
+dev = [
+    "mypy>=2.4.1",
+    "pytest>=9.2.0",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.17.5",
+]
