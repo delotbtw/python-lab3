@@ -38,6 +38,25 @@ class Catalog(ReadOnlyCatalog):
 
     def __init__(self) -> None:
         self._items: dict[str, Book] = {}
+        self._by_category: dict[str, dict[str, None]] = {}
+
+    @staticmethod
+    def _category_key(category: str) -> str:
+        return category.strip().casefold()
+
+    def _put(self, book: Book) -> None:
+        self._items[book.id] = book
+        key = self._category_key(book.category)
+        self._by_category.setdefault(key, {})[book.id] = None
+
+    def _drop(self, item_id: str) -> Book:
+        book = self._items.pop(item_id)
+        key = self._category_key(book.category)
+        ids = self._by_category[key]
+        del ids[item_id]
+        if not ids:
+            del self._by_category[key]
+        return book
 
     def add(self, item: Book) -> None:
         """Add book to catalog"""
@@ -45,7 +64,8 @@ class Catalog(ReadOnlyCatalog):
             raise InvalidEntityError(f"not a book: {item!r}")
         if item.id in self._items:
             raise DuplicateIdError(item.id)
-        self._items[item.id] = item
+
+        self._put(item)
 
     def get(self, item_id: str) -> Book:
         """Get book by id"""
@@ -56,14 +76,14 @@ class Catalog(ReadOnlyCatalog):
 
     def remove(self, item_id: str) -> Book:
         """Remove book by id and return it"""
-        book = self.get(item_id)
-        del self._items[item_id]
-        return book
+        self.get(item_id)
+
+        return self._drop(item_id)
 
     def find_by_category(self, category: str) -> tuple[Book, ...]:
         """Find books by category, ignore case"""
-        key = category.strip().casefold()
-        return tuple(b for b in self._items.values() if b.category.casefold() == key)
+        ids = self._by_category.get(self._category_key(category), {})
+        return tuple(self._items[i] for i in ids)
 
     def find_by_name(self, query: str) -> tuple[Book, ...]:
         """Find books with query in title, ignore case"""
