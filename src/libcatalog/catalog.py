@@ -1,8 +1,10 @@
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
+from pathlib import Path
 
 from libcatalog.errors import DuplicateIdError, InvalidEntityError, ItemNotFoundError
 from libcatalog.models import Book
+from libcatalog.storage import read_books, save_books
 
 
 class ReadOnlyCatalog(ABC):
@@ -79,6 +81,18 @@ class Catalog(ReadOnlyCatalog):
         self.get(item_id)
 
         return self._drop(item_id)
+
+    def save(self, path: str | Path) -> None:
+        """Save catalog in json file"""
+        save_books(self, path)
+
+    def load(self, path: str | Path) -> None:
+        """Load catalog from json, if error catalog not change"""
+        fresh = Catalog()
+        for book in read_books(path):
+            fresh.add(book)
+        self._items = fresh._items
+        self._by_category = fresh._by_category
 
     def find_by_category(self, category: str) -> tuple[Book, ...]:
         """Find books by category, ignore case"""
