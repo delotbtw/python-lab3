@@ -136,6 +136,10 @@ class Catalog(ReadOnlyCatalog):
         finally:
             self._tx_depth -= 1
 
+    def view(self) -> "CatalogView":
+        """Read only view of catalog"""
+        return CatalogView(self)
+
     def _revert(self, change: Change) -> None:
         if change.kind == ChangeKind.ADD:
             self._drop(change.book.id)
@@ -187,3 +191,28 @@ class Catalog(ReadOnlyCatalog):
 
     def __contains__(self, item_id: object) -> bool:
         return isinstance(item_id, str) and item_id in self._items
+
+
+class CatalogView(ReadOnlyCatalog):
+    """Read only view, show changes of catalog"""
+
+    def __init__(self, catalog: ReadOnlyCatalog) -> None:
+        self.__catalog = catalog
+
+    def get(self, item_id: str) -> Book:
+        return self.__catalog.get(item_id)
+
+    def find_by_category(self, category: str) -> tuple[Book, ...]:
+        return self.__catalog.find_by_category(category)
+
+    def find_by_name(self, query: str) -> tuple[Book, ...]:
+        return self.__catalog.find_by_name(query)
+
+    def __len__(self) -> int:
+        return len(self.__catalog)
+
+    def __iter__(self) -> Iterator[Book]:
+        return iter(self.__catalog)
+
+    def __contains__(self, item_id: object) -> bool:
+        return item_id in self.__catalog
