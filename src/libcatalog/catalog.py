@@ -1,8 +1,15 @@
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
 
-from libcatalog.errors import DuplicateIdError, InvalidEntityError, ItemNotFoundError
+from libcatalog.core import ChangeKind
+from libcatalog.errors import (
+    DuplicateIdError,
+    InvalidEntityError,
+    ItemNotFoundError,
+    NothingToUndoError,
+)
 from libcatalog.models import Book
 from libcatalog.storage import read_books, save_books
 
@@ -35,24 +42,41 @@ class ReadOnlyCatalog(ABC):
         """Check id in catalog"""
 
 
+@dataclass(frozen=True)
+class Change:
+    """Record of operation for undo"""
+
+    kind: ChangeKind
+    book: Book
+    seq: int
+
+
 class Catalog(ReadOnlyCatalog):
     """Catalog of books. Iteration go in order of adding."""
 
     def __init__(self) -> None:
         self._items: dict[str, Book] = {}
         self._by_category: dict[str, dict[str, None]] = {}
+        self._seq: dict[str, int] = {}
+        self._next_seq = 0
+        self._journal: list[Change] = []
 
     @staticmethod
     def _category_key(category: str) -> str:
         return category.strip().casefold()
 
-    def _put(self, book: Book) -> None:
+    def _put(self, book: Book, seq: int | None = None) -> None:
+        if seq is None:
+            seq = self._next_seq
+            self._next_seq += 1
         self._items[book.id] = book
+        self._seq[book.id] = seq
         key = self._category_key(book.category)
         self._by_category.setdefault(key, {})[book.id] = None
 
     def _drop(self, item_id: str) -> Book:
         book = self._items.pop(item_id)
+        del self._seq[item_id]
         key = self._category_key(book.category)
         ids = self._by_category[key]
         del ids[item_id]
@@ -68,6 +92,7 @@ class Catalog(ReadOnlyCatalog):
             raise DuplicateIdError(item.id)
 
         self._put(item)
+        self._journal.append(Change(ChangeKind.ADD, item, self._seq[item.id]))
 
     def get(self, item_id: str) -> Book:
         """Get book by id"""
@@ -80,7 +105,29 @@ class Catalog(ReadOnlyCatalog):
         """Remove book by id and return it"""
         self.get(item_id)
 
-        return self._drop(item_id)
+        seq = self._seq[item_id]
+        book = self._drop(item_id)
+        self._journal.append(Change(ChangeKind.REMOVE, book, seq))
+        return book
+
+    def undo(self) -> None:
+        """Undo last add or remove"""
+        if not self._journal:
+            raise NothingToUndoError
+        self._revert(self._journal.pop())
+
+    def _revert(self, change: Change) -> None:
+        if change.kind == ChangeKind.ADD:
+            self._drop(change.book.id)
+            return
+
+        self._put(change.book, change.seq)
+        self._items = dict(sorted(self._items.items(), key=lambda kv: self._seq[kv[0]]))
+
+        self._by_category = {}
+        for book in self._items.values():
+            key = self._category_key(book.category)
+            self._by_category.setdefault(key, {})[book.id] = None
 
     def save(self, path: str | Path) -> None:
         """Save catalog in json file"""
@@ -93,6 +140,9 @@ class Catalog(ReadOnlyCatalog):
             fresh.add(book)
         self._items = fresh._items
         self._by_category = fresh._by_category
+        self._seq = fresh._seq
+        self._next_seq = fresh._next_seq
+        self._journal = []
 
     def find_by_category(self, category: str) -> tuple[Book, ...]:
         """Find books by category, ignore case"""
