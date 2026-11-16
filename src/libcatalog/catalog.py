@@ -1,7 +1,9 @@
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Self
 
 from libcatalog.core import ChangeKind
 from libcatalog.errors import (
@@ -9,6 +11,7 @@ from libcatalog.errors import (
     InvalidEntityError,
     ItemNotFoundError,
     NothingToUndoError,
+    TransactionError,
 )
 from libcatalog.models import Book
 from libcatalog.storage import read_books, save_books
@@ -60,6 +63,7 @@ class Catalog(ReadOnlyCatalog):
         self._seq: dict[str, int] = {}
         self._next_seq = 0
         self._journal: list[Change] = []
+        self._tx_depth = 0
 
     @staticmethod
     def _category_key(category: str) -> str:
@@ -112,9 +116,25 @@ class Catalog(ReadOnlyCatalog):
 
     def undo(self) -> None:
         """Undo last add or remove"""
+        if self._tx_depth:
+            raise TransactionError("undo is not allowed inside a transaction")
         if not self._journal:
             raise NothingToUndoError
         self._revert(self._journal.pop())
+
+    @contextmanager
+    def transaction(self) -> Iterator[Self]:
+        """Rollback all changes in block if error"""
+        mark = len(self._journal)
+        self._tx_depth += 1
+        try:
+            yield self
+        except BaseException:
+            while len(self._journal) > mark:
+                self._revert(self._journal.pop())
+            raise
+        finally:
+            self._tx_depth -= 1
 
     def _revert(self, change: Change) -> None:
         if change.kind == ChangeKind.ADD:
@@ -135,6 +155,8 @@ class Catalog(ReadOnlyCatalog):
 
     def load(self, path: str | Path) -> None:
         """Load catalog from json, if error catalog not change"""
+        if self._tx_depth:
+            raise TransactionError("load is not allowed inside a transaction")
         fresh = Catalog()
         for book in read_books(path):
             fresh.add(book)
