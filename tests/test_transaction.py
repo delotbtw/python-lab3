@@ -64,7 +64,7 @@ def test_any_exception_triggers_rollback_and_is_reraised():
 
     with pytest.raises(ZeroDivisionError), catalog.transaction():
         catalog.remove("b")
-        1 / 0
+        raise ZeroDivisionError
 
     assert [b.id for b in catalog] == ["a", "b", "c"]
 
